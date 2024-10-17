@@ -174,6 +174,7 @@ mut:
 	defer_ifdef               string
 	defer_profile_code        string
 	defer_vars                []string
+	closure_structs           []string
 	str_types                 []StrType       // types that need automatic str() generation
 	generated_str_fns         []StrType       // types that already have a str() function
 	str_fn_names              shared []string // remove duplicate function names
@@ -1212,7 +1213,7 @@ fn (mut g Gen) result_type_name(t ast.Type) (string, string) {
 	return styp, base
 }
 
-fn (g Gen) option_type_text(styp string, base string) string {
+fn (g &Gen) option_type_text(styp string, base string) string {
 	// replace void with something else
 	size := if base == 'void' {
 		'u8'
@@ -1233,7 +1234,7 @@ fn (g Gen) option_type_text(styp string, base string) string {
 	return ret
 }
 
-fn (g Gen) result_type_text(styp string, base string) string {
+fn (g &Gen) result_type_text(styp string, base string) string {
 	// replace void with something else
 	size := if base == 'void' {
 		'u8'
@@ -3069,7 +3070,17 @@ fn (mut g Gen) gen_clone_assignment(var_type ast.Type, val ast.Expr, typ ast.Typ
 			if typ.share() == .shared_t {
 				g.write('(${shared_styp}*)__dup_shared_array(&(${shared_styp}){.mtx = {0}, .val =')
 			}
-			g.write(' array_clone_static_to_depth(')
+			is_sumtype := g.table.type_kind(var_type) == .sum_type
+			if is_sumtype {
+				variant_typ := g.typ(typ).replace('*', '')
+				fn_name := g.get_sumtype_casting_fn(typ, var_type)
+				g.write('${fn_name}(ADDR(${variant_typ}, array_clone_static_to_depth(')
+				if typ.is_ptr() {
+					g.write('*')
+				}
+			} else {
+				g.write(' array_clone_static_to_depth(')
+			}
 			g.expr(val)
 			if typ.share() == .shared_t {
 				g.write('->val')
@@ -3079,6 +3090,9 @@ fn (mut g Gen) gen_clone_assignment(var_type ast.Type, val ast.Expr, typ ast.Typ
 			g.write(', ${array_depth})')
 			if typ.share() == .shared_t {
 				g.write('}, sizeof(${shared_styp}))')
+			}
+			if is_sumtype {
+				g.write('))')
 			}
 		} else if right_sym.kind == .string {
 			// `str1 = str2` => `str1 = str2.clone()`
@@ -3877,6 +3891,10 @@ fn (mut g Gen) selector_expr(node ast.SelectorExpr) {
 			}
 			.typ {
 				g.write(int(g.unwrap_generic(node.name_type)).str())
+				return
+			}
+			.unaliased_typ {
+				g.write(int(g.table.unaliased_type(g.unwrap_generic(node.name_type))).str())
 				return
 			}
 			.unknown {
@@ -7514,7 +7532,7 @@ fn (mut g Gen) type_default(typ_ ast.Type) string {
 	}
 }
 
-fn (g Gen) get_all_test_function_names() []string {
+fn (g &Gen) get_all_test_function_names() []string {
 	mut tfuncs := []string{}
 	mut tsuite_begin := ''
 	mut tsuite_end := ''
@@ -7703,7 +7721,7 @@ fn (mut g Gen) as_cast(node ast.AsCast) {
 	}
 }
 
-fn (g Gen) as_cast_name_table() string {
+fn (g &Gen) as_cast_name_table() string {
 	if g.as_cast_type_names.len == 0 {
 		return 'new_array_from_c_array(1, 1, sizeof(VCastTypeIndexName), _MOV((VCastTypeIndexName[1]){(VCastTypeIndexName){.tindex = 0,.tname = _SLIT("unknown")}}));\n'
 	}
@@ -7718,7 +7736,7 @@ fn (g Gen) as_cast_name_table() string {
 	return name_ast.str()
 }
 
-fn (g Gen) has_been_referenced(fn_name string) bool {
+fn (g &Gen) has_been_referenced(fn_name string) bool {
 	mut referenced := false
 	lock g.referenced_fns {
 		referenced = g.referenced_fns[fn_name]

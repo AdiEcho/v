@@ -2936,6 +2936,7 @@ fn (mut p Parser) name_expr() ast.Expr {
 			fkind := match field {
 				'name' { ast.GenericKindField.name }
 				'typ' { ast.GenericKindField.typ }
+				'unaliased_typ' { ast.GenericKindField.unaliased_typ }
 				else { ast.GenericKindField.unknown }
 			}
 			pos.extend(p.tok.pos())
@@ -3497,7 +3498,7 @@ fn (mut p Parser) parse_concrete_types() []ast.Type {
 }
 
 // is_generic_name returns true if the current token is a generic name.
-fn (p Parser) is_generic_name() bool {
+fn (p &Parser) is_generic_name() bool {
 	return p.tok.kind == .name && util.is_generic_type_name(p.tok.lit)
 }
 
@@ -4241,7 +4242,7 @@ fn (mut p Parser) enum_decl() ast.EnumDecl {
 	p.check(.rcbr)
 	is_flag := p.attrs.contains('flag')
 	is_multi_allowed := p.attrs.contains('_allow_multiple_values')
-	pubfn := if p.mod == 'main' { 'fn' } else { 'pub fn' }
+	pubfn := if p.mod == 'main' { '@[flag_enum_fn] fn' } else { '@[flag_enum_fn] pub fn' }
 	if is_flag {
 		if fields.len > 64 {
 			p.error('when an enum is used as bit field, it must have a max of 64 fields')
@@ -4317,12 +4318,7 @@ fn (mut p Parser) enum_decl() ast.EnumDecl {
 		}
 	}
 	if enum_name[0].is_capital() && fields.len > 0 {
-		// TODO: this check is to prevent avoidable later stage checker errors for generated code,
-		// since currently there is no way to show the proper source context :-|.
-		if p.pref.backend == .c {
-			// TODO: improve the other backends, to the point where they can handle generics or comptime checks too
-			p.codegen(code_for_from_fn)
-		}
+		p.codegen(code_for_from_fn)
 	}
 
 	idx := p.table.register_sym(ast.TypeSymbol{

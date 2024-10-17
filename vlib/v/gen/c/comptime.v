@@ -473,6 +473,8 @@ fn (mut g Gen) get_expr_type(cond ast.Expr) ast.Type {
 		ast.SelectorExpr {
 			if cond.gkind_field == .typ {
 				return g.unwrap_generic(cond.name_type)
+			} else if cond.gkind_field == .unaliased_typ {
+				return g.table.unaliased_type(g.unwrap_generic(cond.name_type))
 			} else {
 				name := '${cond.expr}.${cond.field_name}'
 				if name in g.comptime.type_map {
@@ -572,7 +574,23 @@ fn (mut g Gen) comptime_if_cond(cond ast.Expr, pkg_exist bool) (bool, bool) {
 									return !is_true, true
 								}
 							}
-							if cond.op == .key_is {
+							if got_sym.info is ast.FnType && cond.left is ast.Ident
+								&& g.comptime.comptime_for_method_var == cond.left.name {
+								is_compatible := g.table.fn_signature(got_sym.info.func,
+									skip_receiver: true
+									type_only:     true
+								) == g.table.fn_signature(g.comptime.comptime_for_method,
+									skip_receiver: true
+									type_only:     true
+								)
+								if cond.op == .key_is {
+									g.write(int(is_compatible).str())
+									return is_compatible, true
+								} else {
+									g.write(int(!is_compatible).str())
+									return !is_compatible, true
+								}
+							} else if cond.op == .key_is {
 								g.write('${exp_type.idx()} == ${got_type.idx()} && ${exp_type.has_flag(.option)} == ${got_type.has_flag(.option)}')
 								return exp_type == got_type, true
 							} else {
@@ -762,6 +780,7 @@ fn (mut g Gen) push_new_comptime_info() {
 		comptime_for_method_var:      g.comptime.comptime_for_method_var
 		comptime_for_method:          g.comptime.comptime_for_method
 		comptime_for_method_ret_type: g.comptime.comptime_for_method_ret_type
+		comptime_loop_id:             g.comptime.comptime_loop_id++
 	}
 }
 
